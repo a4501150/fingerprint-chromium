@@ -90,7 +90,7 @@ new file mode 100644
 index 0000000..da306cb
 --- /dev/null
 +++ b/components/ungoogled/fingerprint_data.h
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,60 @@
 +// Copyright (c) 2020 The ungoogled-chromium Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -112,20 +112,6 @@ index 0000000..da306cb
 +constexpr const char* kOperaDisplayName = "Opera";
 +constexpr const char* kVivaldiDisplayName = "Vivaldi";
 +
-+// =============================================================================
-+// Browser Default Versions
-+// =============================================================================
-+
-+// Chromium version list (for seed-based selection)
-+constexpr const char* kChromiumVersions[] = {
-+    "144.0.7559.132",
-+    "144.0.7559.109",
-+    "144.0.7559.96",
-+    "144.0.7559.59"
-+};
-+
-+// Default versions for Client Hints (Sec-CH-UA)
-+constexpr const char* kChromeDefaultVersion = "144.0.7559.132";
 +constexpr const char* kEdgeDefaultVersion = "144.0.3719.141";
 +constexpr const char* kOperaDefaultVersion = "129.0.5818.0";
 +constexpr const char* kVivaldiDefaultVersion = "7.8.3952.73";
@@ -271,44 +257,10 @@ index 4eab85a..f089da9 100644
  }  // namespace
  
  UserAgentBrandVersion::UserAgentBrandVersion(const std::string& ua_brand,
-@@ -232,4 +305,174 @@ bool operator==(const UserAgentOverride& a, const UserAgentOverride& b) {
+@@ -232,4 +305,150 @@ bool operator==(const UserAgentOverride& a, const UserAgentOverride& b) {
           a.ua_metadata_override == b.ua_metadata_override;
  }
  
-+// Get Chromium version based on brand and seed
-+// Priority:
-+// 1. If brand is Chrome with custom version -> return custom version
-+// 2. If brand is not Chrome (Edge/Opera/Vivaldi) -> return latest version
-+// 3. If has fingerprint seed -> return kChromiumVersions[seed % size]
-+// 4. Otherwise -> return first version in array
-+std::string GetChromiumVersion() {
-+  using namespace ungoogled::fingerprint;
-+  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-+
-+  if (command_line->HasSwitch(switches::kFingerprintBrand)) {
-+    std::string brand = base::ToLowerASCII(
-+        command_line->GetSwitchValueASCII(switches::kFingerprintBrand));
-+    // 1. Chrome with custom version
-+    if (brand == "chrome" && command_line->HasSwitch(switches::kFingerprintBrandVersion)) {
-+      return command_line->GetSwitchValueASCII(switches::kFingerprintBrandVersion);
-+    }
-+    // 2. Non-Chrome brand (Edge/Opera/Vivaldi) -> use latest Chromium version
-+    if (brand != "chrome" && !brand.empty()) {
-+      return kChromiumVersions[0];
-+    }
-+  }
-+
-+  // 3. Check if has fingerprint seed
-+  if (command_line->HasSwitch(switches::kFingerprint)) {
-+    int seed = 0;
-+    base::StringToInt(
-+        command_line->GetSwitchValueASCII(switches::kFingerprint), &seed);
-+    return kChromiumVersions[seed % std::size(kChromiumVersions)];
-+  }
-+
-+  // 4. Return first version
-+  return kChromiumVersions[0];
-+}
 +
 +// Helper to extract major version from full version string
 +std::string GetMajorVersion(const std::string& full_version) {
@@ -316,12 +268,12 @@ index 4eab85a..f089da9 100644
 +  return pos != std::string::npos ? full_version.substr(0, pos) : full_version;
 +}
 +
-+// 获取平台版本，基于 fingerprint seed 随机化
++// Get platform version based on fingerprint seed
 +std::string GetPlatformVersion(const std::string& platform) {
 +  using namespace ungoogled::fingerprint;
 +  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 +
-+  // 自定义版本优先
++  // Custom version takes priority
 +  if (command_line->HasSwitch(switches::kFingerprintPlatformVersion)) {
 +    return command_line->GetSwitchValueASCII(switches::kFingerprintPlatformVersion);
 +  }
@@ -348,13 +300,23 @@ index 4eab85a..f089da9 100644
 +    return;
 +
 +  using namespace ungoogled::fingerprint;
-+
-+  std::string chromium_version = GetChromiumVersion();
-+  std::string chromium_major = GetMajorVersion(chromium_version);
-+  int seed = 0;
-+  base::StringToInt(chromium_major, &seed);
-+
 +  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  // Extract the real Chromium version from existing metadata
++  std::string chromium_version = metadata->full_version;
++  for (const auto& brand : metadata->brand_full_version_list) {
++    if (brand.brand == "Chromium") {
++      chromium_version = brand.version;
++      break;
++    }
++  }
++  std::string chromium_major = GetMajorVersion(chromium_version);
++
++  int seed = 0;
++  if (command_line->HasSwitch(switches::kFingerprint)) {
++    base::StringToInt(
++        command_line->GetSwitchValueASCII(switches::kFingerprint), &seed);
++  }
 +
 +  // Default: only Chromium (no additional brand)
 +  std::optional<std::string> chrome_brand = std::nullopt;
